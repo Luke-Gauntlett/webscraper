@@ -1,163 +1,112 @@
 import re
+import json
 import requests
 from bs4 import BeautifulSoup
 
-def parse_table(table_soup):
-    """
-    Given a <table> BeautifulSoup object, parse out the first row as column headers,
-    and subsequent rows as data. Return a list of row-dictionaries, e.g.:
-    [
-      {"HEADER1": "Value1", "HEADER2": "Value2", ...},
-      ...
-    ]
-    """
-    rows = table_soup.find_all('tr')
-    if not rows:
-        return []
+def parse_money(pence):
+    if not pence:
+        return None
+    return f"£{pence / 100:.2f}"
 
-    # First row => headings
-    headers = [cell.get_text(strip=True) for cell in rows[0].find_all(['th', 'td'])]
-
-    data_rows = []
+def format_table(table):
+    """
+    Format an HTML table into plain text.
+    If a preceding h2 tag is found, its text is used as the table title.
+    Each data row is output as separate lines in the form:
+      Header - Cell Value
+    """
+    # Check for table title in previous sibling (e.g., an <h2>)
+    title = ""
+    prev = table.find_previous_sibling()
+    if prev and prev.name == "h2":
+        title = prev.get_text(strip=True)
+    
+    # Extract rows: use both <th> and <td>
+    rows = []
+    for tr in table.find_all('tr'):
+        cells = [cell.get_text(separator=" ", strip=True) for cell in tr.find_all(['td', 'th'])]
+        if cells:
+            rows.append(cells)
+    
+    if not rows or len(rows) < 2:
+        return ""
+    
+    header = rows[0]
+    formatted_lines = []
+    if title:
+        formatted_lines.append(title)
+    # Process each data row (skip header row)
     for row in rows[1:]:
-        cells = row.find_all(['th', 'td'])
-        # if the row is empty or only 1 cell, skip
-        if not cells:
-            continue
-
-        # get cell text
-        values = [cell.get_text(" ", strip=True) for cell in cells]
-        # pad or truncate to match the number of headers
-        while len(values) < len(headers):
-            values.append("")
-        row_dict = {}
-        for i, heading in enumerate(headers):
-            row_dict[heading] = values[i] if i < len(values) else ""
-        data_rows.append(row_dict)
-
-    return data_rows
-
-def table_to_text(table_data):
-    """
-    Convert a list of row-dictionaries (from parse_table) into
-    the requested text format:
-
-    HEADER - value
-    HEADER2 - value2
-    [blank line]
-    ...
-    """
-    lines = []
-    for row_dict in table_data:
-        for heading, value in row_dict.items():
-            lines.append(f"{heading} - {value}")
-        lines.append("")  # blank line after each row
-    return "\n".join(lines)
+        if len(row) == len(header):
+            for h, cell in zip(header, row):
+                formatted_lines.append(f"{h} - {cell}")
+        else:
+            # Fallback: join the row cells if row length doesn't match header length
+            formatted_lines.append(" - ".join(row))
+    return "\n".join(formatted_lines)
 
 def scrape_product_info(url):
     response = requests.get(url)
     response.raise_for_status()
-    soup = BeautifulSoup(response.text, 'html.parser')
+    soup = BeautifulSoup(response.text, "html.parser")
 
-    # 1) Product name
+    # 1) Product Name
     name_tag = soup.find('h1')
     product_name = name_tag.get_text(strip=True) if name_tag else None
 
-    # 2) Prices (try a few possible selectors)
-    #    Compare-at / regular
-    #    (Some themes store the compare-at price in <s class="price-item--regular"> or .price__regular .price-item--regular, etc.)
-    regular_price_tag = (
-        soup.select_one('.price__regular .price-item--regular span[hidewlm]') or
-        soup.select_one('s.price-item--regular span[hidewlm]') or
-        soup.select_one('.price__regular .price-item--regular')
-    )
-    sale_price_tag = (
-        soup.select_one('.price__sale .price-item--sale span[hidewlm]') or
-        soup.select_one('.price__sale .price-item--sale') or
-        soup.select_one('span.price-item--sale span[hidewlm]')
-    )
+    # 2) Price from embedded JSON (using script tag id "em_product_variants")
+    regular_price = None
+    sale_price = None
+    script_tag = soup.find("script", {"id": "em_product_variants"}, type="application/json")
+    if script_tag:
+        try:
+            variants_json = json.loads(script_tag.string)
+            if variants_json and isinstance(variants_json, list):
+                variant_data = variants_json[0]
+                sale_price = parse_money(variant_data.get("price"))
+                regular_price = parse_money(variant_data.get("compare_at_price"))
+        except (json.JSONDecodeError, KeyError, IndexError, ValueError):
+            pass
 
-    def get_text_or_none(tag):
-        if not tag:
-            return None
-        return tag.get_text(strip=True)
-
-    regular_price = get_text_or_none(regular_price_tag)
-    sale_price = get_text_or_none(sale_price_tag)
-
-    # 3) Stock status
+    # 3) Stock Status (look for a bold tag that contains "IN STOCK")
     stock_status_tag = soup.find('b', string=lambda t: t and "IN STOCK" in t)
     stock_status = stock_status_tag.get_text(strip=True) if stock_status_tag else None
 
-    # 4) Warranty
+    # 4) Warranty: Look for bold text "WARRANTY:" then grab following text and any <i> element
     warranty = None
     warranty_bold = soup.find('b', string="WARRANTY:")
     if warranty_bold:
-        text_after_warranty = warranty_bold.next_sibling
-        if text_after_warranty and isinstance(text_after_warranty, str):
-            text_after_warranty = text_after_warranty.strip()
-        else:
-            text_after_warranty = ""
+        text_after = (warranty_bold.next_sibling or "").strip()
         i_tag = warranty_bold.find_next('i')
         if i_tag:
-            warranty = f"{text_after_warranty} {i_tag.get_text(strip=True)}"
+            warranty = f"{text_after} {i_tag.get_text(strip=True)}"
         else:
-            warranty = text_after_warranty
+            warranty = text_after
 
-    # 5) The main product description container
+    # 5) Description: Process the description div and format tables separately.
     description_div = soup.find('div', class_='product__description')
-    if not description_div:
-        return {
-            "name": product_name,
-            "regular_price": regular_price,
-            "sale_price": sale_price,
-            "stock_status": stock_status,
-            "warranty": warranty,
-            "description_text": "",
-            "dimensions_table": "",
-            "technical_data_table": "",
-        }
-
-    # Copy the <div> so we can remove the <table> elements from it
-    # for a plain-text version of the description
-    desc_div_copy = BeautifulSoup(str(description_div), 'html.parser')
-
-    # Find the "Dimensions" <h2> (if any) then parse its table
-    dimensions_table_text = ""
-    dims_header = desc_div_copy.find('h2', string=lambda t: t and "Dimensions" in t)
-    if dims_header:
-        dims_table = dims_header.find_next('table')
-        if dims_table:
-            table_data = parse_table(dims_table)
-            dimensions_table_text = table_to_text(table_data)
-            # remove the table from the copy so it doesn't appear in plain text
-            dims_table.decompose()
-
-    # Find the "Technical Data" <h2> (if any) then parse its table
-    technical_table_text = ""
-    tech_header = desc_div_copy.find('h2', string=lambda t: t and "Technical Data" in t)
-    if tech_header:
-        tech_table = tech_header.find_next('table')
-        if tech_table:
-            table_data = parse_table(tech_table)
-            technical_table_text = table_to_text(table_data)
-            # remove the table from the copy so it doesn't appear in plain text
-            tech_table.decompose()
-
-    # Now remove all leftover HTML tags from desc_div_copy
-    # and get plain text
-    # The easiest approach is get_text()
-    description_text = desc_div_copy.get_text(" ", strip=True)
+    if description_div:
+        desc_copy = BeautifulSoup(str(description_div), 'html.parser')
+        # Process each table found in the description
+        tables = desc_copy.find_all('table')
+        formatted_tables = []
+        for table in tables:
+            formatted_tables.append(format_table(table))
+            table.decompose()  # Remove table from the copy so it doesn't duplicate
+        # Get the remaining plain text (without tables)
+        remaining_text = desc_copy.get_text(" ", strip=True)
+        # Combine the plain text and the formatted tables (each table separated by two newlines)
+        description_text = remaining_text + "\n\n" + "\n\n".join(formatted_tables)
+    else:
+        description_text = ""
 
     return {
         "name": product_name,
-        "regular_price": regular_price,
-        "sale_price": sale_price,
+        "regular_price": regular_price,  # Compare-at price
+        "sale_price": sale_price,        # Actual sale price
         "stock_status": stock_status,
         "warranty": warranty,
-        "description_text": description_text,
-        "dimensions_table": dimensions_table_text,
-        "technical_data_table": technical_table_text,
+        "description_text": description_text
     }
 
 if __name__ == "__main__":
@@ -165,18 +114,9 @@ if __name__ == "__main__":
     data = scrape_product_info(product_url)
 
     print("Name:", data["name"])
-    print("Regular Price:", data["regular_price"])
-    print("Sale Price:", data["sale_price"])
+    print("Regular Price:", data["regular_price"])  # e.g. £280.46
+    print("Sale Price:", data["sale_price"])        # e.g. £143.74
     print("Stock Status:", data["stock_status"])
     print("Warranty:", data["warranty"])
-
-    print("\nDESCRIPTION (no HTML tags):")
+    print("\nDESCRIPTION (plain text):")
     print(data["description_text"])
-
-    if data["dimensions_table"]:
-        print("\nDIMENSIONS TABLE:")
-        print(data["dimensions_table"])
-
-    if data["technical_data_table"]:
-        print("TECHNICAL DATA TABLE:")
-        print(data["technical_data_table"])
