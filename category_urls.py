@@ -1,5 +1,5 @@
 category_urls = [
-    # Pumps and Filters
+# Pumps and Filters
     # Pumps
     "https://skswholesale.co.uk/collections/pond-pumps",
     "https://skswholesale.co.uk/collections/variable-flow-pumps",
@@ -41,7 +41,7 @@ category_urls = [
     "https://skswholesale.co.uk/collections/zeolite",
     "https://skswholesale.co.uk/collections/media-grids-media-bags",
 
-    # Pond Construction
+# Pond Construction
     # Pipe lengths
     "https://skswholesale.co.uk/collections/pond-pipework-and-fittings",
     "https://skswholesale.co.uk/collections/pressure-pipe",
@@ -85,7 +85,7 @@ category_urls = [
     "https://skswholesale.co.uk/collections/pond-paints-and-sealants",
     "https://skswholesale.co.uk/collections/glue-adhesive",
 
-    # Pond Accessories
+# Pond Accessories
     # Pond cleaning
     "https://skswholesale.co.uk/collections/pond-cleaning-products-and-hoovers",
     "https://skswholesale.co.uk/collections/vacuum-cleaners",
@@ -104,8 +104,8 @@ category_urls = [
     "https://skswholesale.co.uk/collections/water-purifiers-and-auto-top-up-systems",
 
     # Koi Handling
-    "https://skswholesale.co.uk/collections/fish-catching-nets-and-handles",
     "https://skswholesale.co.uk/collections/fish-bowls-and-tanks",
+    "https://skswholesale.co.uk/collections/fish-catching-nets-and-handles",
     "https://skswholesale.co.uk/collections/koi-socks",
     "https://skswholesale.co.uk/collections/fish-transport-bags",
 
@@ -117,7 +117,7 @@ category_urls = [
     "https://skswholesale.co.uk/collections/koi-books",
     "https://skswholesale.co.uk/collections/koi-gift-ideas",
 
-    # Heating & UVC
+ # Heating & UVC
     # Heating
     "https://skswholesale.co.uk/collections/pond-heating",
     "https://skswholesale.co.uk/collections/heating-elements",
@@ -145,7 +145,7 @@ category_urls = [
     # Thermometers
     "https://skswholesale.co.uk/collections/pond-thermometers",
 
-    # Koi Food & Treatments
+# Koi Food & Treatments
     # Koi food
     "https://skswholesale.co.uk/collections/koi-foods",
     "https://skswholesale.co.uk/collections/jpd-koi-food",
